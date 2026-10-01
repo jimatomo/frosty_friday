@@ -356,3 +356,78 @@ select
 from extracted_hashtags,
     lateral flatten(input => extracted_hashtags.hashtags) flat
 ;
+
+
+
+-- #############################
+-- [おまけ] Claudeの回答
+-- #############################
+
+-- CHALLENGE 1
+SELECT
+    user_id,
+    email,
+    -- REGEXP_LIKE は全体一致なので ^ と $ は不要
+    REGEXP_LIKE(
+        email,
+        '[A-Za-z0-9]+([.-][A-Za-z0-9]+)*@[A-Za-z0-9]+(-[A-Za-z0-9]+)*\\.[A-Za-z]{2,6}'
+    ) AS is_valid_email
+FROM users
+ORDER BY user_id;
+
+
+-- CHALLENGE 2
+WITH extracted AS (
+    SELECT
+        doc_id,
+        text_column,
+        REGEXP_SUBSTR(
+            text_column,
+               '(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/[0-9]{4}'       -- DD/MM/YYYY
+            || '|(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])-[0-9]{4}'      -- MM-DD-YYYY
+            || '|[0-9]{4}\\.(0[1-9]|1[0-2])\\.(0[1-9]|[12][0-9]|3[01])'  -- YYYY.MM.DD
+        ) AS date_str
+    FROM documents
+)
+SELECT
+    doc_id,
+    text_column,
+    date_str,
+    -- おまけ: 書式ごとに DATE 型へ変換する
+    COALESCE(
+        TRY_TO_DATE(date_str, 'DD/MM/YYYY'),
+        TRY_TO_DATE(date_str, 'MM-DD-YYYY'),
+        TRY_TO_DATE(date_str, 'YYYY.MM.DD')
+    ) AS parsed_date
+FROM extracted
+ORDER BY doc_id;
+
+
+-- CHALLENGE 3
+SELECT
+    transaction_id,
+    card_number,
+    REGEXP_REPLACE(
+        card_number,
+        '^[0-9]{4}([- ]?)[0-9]{4}([- ]?)[0-9]{4}([- ]?)([0-9]{4})$',
+        '****\\1****\\2****\\3\\4'
+    ) AS masked_card_number
+FROM transactions
+ORDER BY transaction_id;
+
+-- CHALLENGE 4
+-- 投稿ごとに配列で返す
+SELECT
+    post_id,
+    REGEXP_SUBSTR_ALL(text_column, '#[A-Za-z0-9_]+') AS hashtags,
+    REGEXP_COUNT(text_column, '#[A-Za-z0-9_]+')     AS hashtag_count
+FROM social_posts
+ORDER BY post_id;
+
+-- 1 タグ 1 行に展開する
+SELECT
+    p.post_id,
+    t.value::STRING AS hashtag
+FROM social_posts p,
+     LATERAL FLATTEN(input => REGEXP_SUBSTR_ALL(p.text_column, '#[A-Za-z0-9_]+')) t
+ORDER BY p.post_id, t.index;
